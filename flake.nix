@@ -38,7 +38,7 @@
       packages.liba = pkgs.stdenv.mkDerivation {
         pname = "liba";
         version = "1.0.0.2";
-        src = ./liba;
+        src = ./.;
 
         buildPhase = ''
           . scripts/compile.bash
