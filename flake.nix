@@ -57,6 +57,7 @@
           cp src/a.h $out/include/
           mkdir -p $out/lib
           cp build/liba.a $out/lib/
+          cp build/liba.so $out/lib/
 
           # distribute tests
           mkdir -p $out/test
