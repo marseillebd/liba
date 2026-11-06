@@ -80,7 +80,7 @@
       packages.liba-smoke = pkgs.stdenv.mkDerivation {
         pname = "liba-smoke";
         version = "1.0.0.2";
-        src = ./liba;
+        src = ./.;
         nativeBuildInputs = [
           packages.liba
         ];

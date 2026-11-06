@@ -129,20 +129,20 @@
   #define a__defer a__deferShim(__COUNTER__)
   #define a__deferShim(N)                                                      \
     /* forward-declare a cleanup function */                                   \
-    auto void A_TOKEN_PASTE(a__deferF, N)(int*);                               \
+    auto void A_PASTE(a__deferF, N)(int*);                                     \
     /* Now, declare a dummy variable */                                        \
     /* and use the `__cleanup__` attribute to register our cleanup function */ \
     /*   to run when the dummy goes out-of-scope. */                           \
-    __attribute__(( __cleanup__(A_TOKEN_PASTE(a__deferF, N)),                  \
+    __attribute__(( __cleanup__(A_PASTE(a__deferF, N)),                        \
                     __deprecated__, __unused__                                 \
                  ))                                                            \
-    int A_TOKEN_PASTE(a__deferV, N);                                           \
+    int A_PASTE(a__deferV, N);                                                 \
     /* Finally, "define" our cleanup function */                               \
     /* This has to be last so that its definition actually comes */            \
     /*   from the block following the macro call. */                           \
     __attribute__((__always_inline__, __deprecated__, __unused__))             \
     inline auto void                                                           \
-    A_TOKEN_PASTE(a__deferF, N)(int*)
+    A_PASTE(a__deferF, N)(int*)
 // We have no more fallbacks, but I suspect I'll be using defer in my code anyway.
 // So, we fail early.
 #else
@@ -156,12 +156,12 @@
 /// `A_ENSURE` is valid where typedefs are, and `a_ensure` is valid as an expression (which evaluates to zero).
 ///
 
-# define A_ENSURE(cond, msg)                                     \
-  typedef char A_TOKEN_PASTE(a__ensure_,msg)[(cond) ? 1 : -1];
+# define A_ENSURE(cond, msg)                              \
+  typedef char A_PASTE(a__ensure_,msg)[(cond) ? 1 : -1];
 
-#define a_ensure(cond, msg)                                      \
-  (0 * (int)sizeof(struct {                                     \
-    char A_TOKEN_PASTE(a__ensure_,msg)[(cond) ? 1 : -1]; \
+#define a_ensure(cond, msg)                               \
+  (0 * (int)sizeof(struct {                               \
+    char A_PASTE(a__ensure_,msg)[(cond) ? 1 : -1];        \
   }))
 
 /// #### `isArray`
@@ -187,15 +187,15 @@
 /// `match (condition, declaration) { body... }` will evaluate `body` with `declaration` in-scope only when `contition` is true.
 /// `match` statements can have `else` clauses, and thus `else match` clauses.
 /// Unfortunately, this will mess with the expected behavior of `break` inside the body;
-///   use break-to-label inside the body i fyou must.
+///   use break-to-label inside the body if you must.
 /// Likewise for `continue`.
 ///
 /// This is useful for simple pattern-matching, like `match (ptr != NULL, int value = *ptr) { ... }`.
 #define match(cond, decl) a__match(cond, decl, __COUNTER__)
-#define a__match(cond, decl, N) \
-  if (cond) \
-    for (bool A_TOKEN_PASTE(stop,N) = true; A_TOKEN_PASTE(stop,N);) \
-      for (decl; A_TOKEN_PASTE(stop,N); A_TOKEN_PASTE(stop,N) = false)
+#define a__match(cond, decl, N)                            \
+  if (cond)                                                \
+    for (bool A_PASTE(stop,N) = true; A_PASTE(stop,N);)    \
+      for (decl; A_PASTE(stop,N); A_PASTE(stop,N) = false)
 ///
 
 /// #### `pass`
@@ -218,6 +218,80 @@
   exit(1);                                                               \
   NULL;                                                                  \
 })
+
+/// #### Token Pasting and Stringizing
+
+/// Token pasting is somewhat fraught.
+/// `A__PASTE` does not work within macros, because its arguments are not expanded.
+/// Similarly with using the `##` operator directly.
+/// I can't actually cite a source, but it seems to be the case.
+#define A__PASTE(t1, t2) t1##t2
+/// Since token pasting often involves generating a token from builtins such as `__LINE__`,
+///   we usualy want to use `A_PASTE` instead, even though it looks like it shouldn't do anything.
+#define A_PASTE(t1, t2) A__PASTE(t1, t2)
+///
+
+/// #### Namespaces
+
+/// A feature I, and likely other, miss in C is namespaces,
+/// and we usually end up doing them by-hand with prefixes like, well most saliently, `a_*`.
+///
+/// I can lighten the load somewhat by allowing one namespace to be selected as primary.
+/// Define `CUR_NS` to an identifier so that the macro `A_NS(thing)` will prefix `thing` with `CUR_NS` and an underscore.
+/// Be sure to undefine `CUR_NS` later, and 
+/// You may also want to define `NS` as a synonym for `A_NS`, even if you don't define `A_NOPREFIX`.
+///
+/// Example:
+/// ```
+/// // A namespace defining boxed dynamic arrays:
+/// #define CUR_NS da
+/// typedef struct da {
+///   void* buf;
+///   int len, cap;
+/// } da;
+/// void* NS(init)();
+/// void* NS(at)(void* self, int index);
+/// void* NS(push)(void* self, void* elem);
+/// #undef CUR_NS
+///
+/// ...
+///
+/// // And somewhere that the `da` namespace is frequently used:
+/// #define CUR_NS da
+/// typedef struct symbol { ... } symbol;
+/// typedef struct symtab { da it };
+/// int symtab_append(symtab* self, const char* name) {
+///   NS(push)((symbol){...});
+///   return self->it.len - 1;
+/// }
+/// #undef CUR_NS
+/// ```
+///
+/// Looking at these examples, I wouldn't blame you for avoiding this namespace-y syntax in definitions.
+/// After all, it's easier to grep for definitions when you know exactly what you're looking for.
+
+#define A__NSPASTE(x,y) x##_##y
+#define A__NS(ns, name) A__NSPASTE(ns,name)
+#define A_NS(name) A__NS(CUR_NS, name)
+
+#define CUR_NS a
+  char* NS(thing);
+#undef CUR_NS
+
+#define CUR_NS a_da
+  char* NS(thing);
+#undef CUR_NS
+#define A__NS(x,y) x##_##y
+#define NS_(ns, name) NS_PASTE(ns,name)
+#define NS(name) NS_(CUR_NS, name)
+
+#define CUR_NS a
+  char* NS(thing);
+#undef CUR_NS
+
+#define CUR_NS a_da
+  char* NS(thing);
+#undef CUR_NS
 
 /// ## Default Headers
 ///
@@ -336,7 +410,7 @@
 #ifdef A_NOPREFIX
 
   #define STR          A_STR
-  #define TOKEN_PASTE  A_TOKEN_PASTE
+  #define TOKEN_PASTE  A_PASTE
   #define ENSURE       A_ENSURE
   #define ensure       a_ensure
   #define isArray      a_isArray
@@ -400,18 +474,6 @@
 /// - `mk`: make, cf "new", "init"
 /// - `init`: initialize
 /// - TODO fini, del, clr
-
-/// ## Token Pasting and Stringizing
-
-/// Token pasting is somewhat fraught.
-/// `A_TOKEN_PASTE_DIRECT` does not work within macros, because its arguments are not expanded.
-/// Similarly with using the `##` operator directly.
-/// I can't actually cite a source, but it seems to be the case.
-#define A_TOKEN_PASTE_DIRECT(t1, t2) t1##t2
-/// Since token pasting often involves generating a token from builtins such as `__LINE__`,
-///   we usualy want to use `A_TOKEN_PASTE` instead, even though it looks like it shouldn't do anything.
-#define A_TOKEN_PASTE(t1, t2) A_TOKEN_PASTE_DIRECT(t1, t2)
-///
 
 /// Similarly, stringizing is fraught.
 /// Use `A_STR` instead of `A_STR_DIRECT` or plain `#`.
@@ -856,17 +918,17 @@ CStr a_mCStrFromAsciiz(A_Asciiz src) {
 /// `dim` is in `{2,3}`, and `type` is in `f{32,64}`.
 /// Each `vec` type has component names drawn from (in order) `x`, `y`, `z`, `w`.
 
-#define a__mkvec2(ty)                        \
-  typedef struct A_TOKEN_PASTE(a_vec2,ty) {  \
-    ty x;                                    \
-    ty y;                                    \
-  } A_TOKEN_PASTE(a_vec2,ty)
-#define a__mkvec3(ty)                        \
-  typedef struct A_TOKEN_PASTE(a_vec3,ty) {  \
-    ty x;                                    \
-    ty y;                                    \
-    ty z;                                    \
-  } A_TOKEN_PASTE(a_vec3,ty)
+#define a__mkvec2(ty)                  \
+  typedef struct A_PASTE(a_vec2,ty) {  \
+    ty x;                              \
+    ty y;                              \
+  } A_PASTE(a_vec2,ty)
+#define a__mkvec3(ty)                  \
+  typedef struct A_PASTE(a_vec3,ty) {  \
+    ty x;                              \
+    ty y;                              \
+    ty z;                              \
+  } A_PASTE(a_vec3,ty)
 a__mkvec2(f32);
 a__mkvec2(f64);
 a__mkvec3(f32);
@@ -876,15 +938,15 @@ a__mkvec3(f64);
 /// ##### `dot_vec<dim><ty>`
 /// `<ty> a_dot_vec<dim><ty>(vec<dim><ty> a, vec<dim><ty> avec<dim><ty> b)`
 ///   computes the dot product between two vectors.
-#define a__mkdot_vec2(ty)                                                                      \
-  A__INLINE                                                                                    \
-  ty A_TOKEN_PASTE(a_dot_vec2,ty)(A_TOKEN_PASTE(a_vec2,ty) a, A_TOKEN_PASTE(a_vec2,ty) b) {    \
-    return a.x*b.x + a.y*b.y;                                                                  \
+#define a__mkdot_vec2(ty)                                                    \
+  A__INLINE                                                                  \
+  ty A_PASTE(a_dot_vec2,ty)(A_PASTE(a_vec2,ty) a, A_PASTE(a_vec2,ty) b) {    \
+    return a.x*b.x + a.y*b.y;                                                \
   }
-#define a__mkdot_vec3(ty)                                                                      \
-  A__INLINE                                                                                    \
-  ty A_TOKEN_PASTE(a_dot_vec3,ty)(A_TOKEN_PASTE(a_vec3,ty) a, A_TOKEN_PASTE(a_vec3,ty) b) {    \
-    return a.x*b.x + a.y*b.y + a.z*b.z;                                                        \
+#define a__mkdot_vec3(ty)                                                    \
+  A__INLINE                                                                  \
+  ty A_PASTE(a_dot_vec3,ty)(A_PASTE(a_vec3,ty) a, A_PASTE(a_vec3,ty) b) {    \
+    return a.x*b.x + a.y*b.y + a.z*b.z;                                      \
   }
 a__mkdot_vec2(f32)
 a__mkdot_vec2(f64)
